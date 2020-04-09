@@ -43,9 +43,10 @@ public interface CloudDestination extends Closeable {
    * Download blob from the cloud destination.
    * @param blobId id of the Ambry blob to be downloaded
    * @param outputStream outputstream to populate the downloaded data with
+   * @return the {@link CloudBlobMetadata} of the downloaded blob.
    * @throws CloudStorageException if the download encounters an error.
    */
-  void downloadBlob(BlobId blobId, OutputStream outputStream) throws CloudStorageException;
+  CloudBlobMetadata downloadBlob(BlobId blobId, OutputStream outputStream) throws CloudStorageException;
 
   /**
    * Mark a blob as deleted in the cloud destination.

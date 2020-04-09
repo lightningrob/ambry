@@ -177,18 +177,20 @@ public class LatchBasedInMemoryCloudDestination implements CloudDestination {
   }
 
   @Override
-  public void downloadBlob(BlobId blobId, OutputStream outputStream) throws CloudStorageException {
+  public CloudBlobMetadata downloadBlob(BlobId blobId, OutputStream outputStream) throws CloudStorageException {
     try {
       if (!map.containsKey(blobId)) {
         throw new CloudStorageException("Blob with blobId " + blobId.getID() + " does not exist.");
       }
+      CloudBlobMetadata blobMetadata = map.get(blobId).getFirst();
       byte[] blobData = map.get(blobId).getSecond();
       outputStream.write(blobData);
+      downloadLatch.countDown();
+      return blobMetadata;
     } catch (IOException ex) {
       throw new CloudStorageException(
           "Could not download blob for blobid " + blobId.getID() + " due to " + ex.toString());
     }
-    downloadLatch.countDown();
   }
 
   @Override

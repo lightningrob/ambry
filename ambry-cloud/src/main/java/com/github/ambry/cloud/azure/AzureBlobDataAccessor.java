@@ -25,6 +25,7 @@ import com.azure.storage.blob.BlobServiceClientBuilder;
 import com.azure.storage.blob.batch.BlobBatch;
 import com.azure.storage.blob.batch.BlobBatchClient;
 import com.azure.storage.blob.batch.BlobBatchClientBuilder;
+import com.azure.storage.blob.models.BlobDownloadResponse;
 import com.azure.storage.blob.models.BlobErrorCode;
 import com.azure.storage.blob.models.BlobProperties;
 import com.azure.storage.blob.models.BlobRequestConditions;
@@ -215,8 +216,10 @@ public class AzureBlobDataAccessor {
       throws BlobStorageException {
     try {
       BlockBlobClient blobClient = getBlockBlobClient(containerName, fileName, false);
-      blobClient.downloadWithResponse(outputStream, null, null, defaultRequestConditions, false, requestTimeout,
+      BlobDownloadResponse
+          response = blobClient.downloadWithResponse(outputStream, null, null, defaultRequestConditions, false, requestTimeout,
           Context.NONE);
+      response.getDeserializedHeaders().getMetadata();
       return true;
     } catch (BlobStorageException e) {
       if (!errorOnNotFound && isNotFoundError(e.getErrorCode())) {
@@ -247,13 +250,19 @@ public class AzureBlobDataAccessor {
    * @throws BlobStorageException on Azure side error.
    * @throws UncheckedIOException on error writing to the output stream.
    */
-  public void downloadBlob(BlobId blobId, OutputStream outputStream) throws BlobStorageException {
+  public CloudBlobMetadata downloadBlob(BlobId blobId, OutputStream outputStream) throws BlobStorageException {
     azureMetrics.blobDownloadRequestCount.inc();
     Timer.Context storageTimer = azureMetrics.blobDownloadTime.time();
     try {
       BlobLayout blobLayout = blobLayoutStrategy.getDataBlobLayout(blobId);
-      downloadFile(blobLayout.containerName, blobLayout.blobFilePath, outputStream, true);
+      // TODO: use async client (get separately from builder)
+      BlockBlobClient blobClient = getBlockBlobClient(blobLayout.containerName, blobLayout.blobFilePath, false);
+      BlobDownloadResponse
+          response = blobClient.downloadWithResponse(outputStream, null, null, defaultRequestConditions, false, requestTimeout,
+          Context.NONE);
+      //downloadFile(blobLayout.containerName, blobLayout.blobFilePath, outputStream, true);
       azureMetrics.blobDownloadSuccessCount.inc();
+      return CloudBlobMetadata.fromMap(response.getDeserializedHeaders().getMetadata());
     } catch (Exception e) {
       azureMetrics.blobDownloadErrorCount.inc();
       throw e;
