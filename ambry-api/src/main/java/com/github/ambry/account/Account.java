@@ -107,7 +107,7 @@ public class Account {
   private final short id;
   private final String name;
   private AccountStatus status;
-  private final int snapshotVersion;
+  private int snapshotVersion;
   // internal data structure
   private final Map<Short, Container> containerIdToContainerMap = new HashMap<>();
   private final Map<String, Container> containerNameToContainerMap = new HashMap<>();
@@ -231,6 +231,14 @@ public class Account {
     return snapshotVersion;
   }
 
+  public void setStatus(AccountStatus status) {
+    this.status = status;
+  }
+
+  public void setSnapshotVersion(int snapshotVersion) {
+    this.snapshotVersion = snapshotVersion;
+  }
+
   /**
    * Gets the {@link Container} of this account with the specified container id.
    * @param containerId The id of the container to get.
@@ -309,7 +317,7 @@ public class Account {
    * Adds a {@link Container} to this account and updates internal maps accordingly.
    * @param container The container to update this account.
    */
-  public void updateContainerMap(Container container) {
+  private void updateContainerMap(Container container) {
     containerIdToContainerMap.put(container.getId(), container);
     containerNameToContainerMap.put(container.getName(), container);
   }
@@ -360,5 +368,9 @@ public class Account {
               .toString();
       throw new IllegalStateException(errorMessage);
     }
+  }
+
+  void updateContainers(Collection<Container> containers) {
+    containers.forEach(this::updateContainerMap);
   }
 }

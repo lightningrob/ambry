@@ -15,7 +15,7 @@ package com.github.ambry.account.mysql;
 
 import com.github.ambry.account.AccountSerdeUtils;
 import com.github.ambry.account.Container;
-import java.sql.Connection;
+import com.github.ambry.account.Account;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -41,6 +41,7 @@ public class ContainerDao {
   private final String insertSql;
   private final String getSinceSql;
   private final String getByAccountSql;
+  private final String updateSql;
 
   public ContainerDao(MySqlDataAccessor dataAccessor) {
     this.dataAccessor = dataAccessor;
@@ -53,6 +54,8 @@ public class ContainerDao {
     getByAccountSql =
         String.format("select %s, %s, %s from %s where %s = ?", ACCOUNT_ID, CONTAINER_INFO, LAST_MODIFIED_TIME,
             CONTAINER_TABLE, ACCOUNT_ID);
+    updateSql = String.format("update %s set %s = ?, %s = 1, %s = now() where %s = ? AND %s = ? ", CONTAINER_TABLE,
+        CONTAINER_INFO, VERSION, LAST_MODIFIED_TIME, ACCOUNT_ID, CONTAINER_ID);
   }
 
   /**
@@ -82,6 +85,22 @@ public class ContainerDao {
    * @return a list of {@link Container}.
    * @throws SQLException
    */
+  public void updateContainer(int accountId, Container container) throws SQLException {
+    try {
+      // Note: assuming autocommit for now
+      PreparedStatement updateStatement = dataAccessor.getPreparedStatement(updateSql);
+      updateStatement.setString(1, AccountSerdeUtils.containerToJson(container));
+      updateStatement.setInt(2, accountId);
+      updateStatement.setInt(3, container.getId());
+      updateStatement.executeUpdate();
+    } catch (SQLException e) {
+      // TODO: record failure, parse exception to figure out what we did wrong (eg. id or name collision)
+      // For now, assume connection issue.
+      dataAccessor.reset();
+      throw e;
+    }
+  }
+
   public List<Container> getContainers(int accountId) throws SQLException {
     PreparedStatement getByAccountStatement = dataAccessor.getPreparedStatement(getByAccountSql);
     getByAccountStatement.setInt(1, accountId);
