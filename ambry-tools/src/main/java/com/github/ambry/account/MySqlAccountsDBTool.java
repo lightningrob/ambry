@@ -28,6 +28,8 @@ import java.io.IOException;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.Arrays;
+import java.util.Collection;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
@@ -83,9 +85,8 @@ public class MySqlAccountsDBTool {
   static final String ACCOUNT_METADATA_MAP_KEY = "accountMetadata";
   static final String RELATIVE_ACCOUNT_METADATA_PATH = "/account_metadata/full_data";
 
+  private final MySqlAccountStore mySqlAccountStore;
   private final MySqlDataAccessor mySqlDataAccessor;
-  private final AccountDao accountDao;
-  private final ContainerDao containerDao;
   private final HelixPropertyStore<ZNRecord> helixPropertyStore;
   private final String fullZKAccountMetadataPath;
 
@@ -184,8 +185,7 @@ public class MySqlAccountsDBTool {
   public MySqlAccountsDBTool(VerifiableProperties verifiableProperties, String zkServer) throws SQLException {
 
     this.mySqlDataAccessor = new MySqlDataAccessor(new MySqlConfig(verifiableProperties));
-    this.accountDao = new AccountDao(mySqlDataAccessor);
-    this.containerDao = new ContainerDao(mySqlDataAccessor);
+    this.mySqlAccountStore = new MySqlAccountStore(new MySqlConfig(verifiableProperties));
     //Create helix property store
     HelixPropertyStoreConfig helixPropertyStoreConfig = new HelixPropertyStoreConfig(verifiableProperties);
     this.helixPropertyStore = CommonUtils.createHelixPropertyStore(zkServer, helixPropertyStoreConfig, null);
@@ -225,10 +225,8 @@ public class MySqlAccountsDBTool {
 
     // Populate Account and Container tables
     for (Account account : accountInfoMap.getAccounts()) {
-      for (Container container : account.getAllContainers()) {
-        containerDao.addContainer(account.getId(), container);
-      }
-      accountDao.addAccount(account);
+      mySqlAccountStore.addContainers(account.getAllContainers());
+      mySqlAccountStore.addAccounts(Collections.singletonList(account));
     }
 
     logger.info("Initialized account metadata in DB from ZK path {}, took time={} ms", fullZKAccountMetadataPath,
@@ -257,13 +255,12 @@ public class MySqlAccountsDBTool {
         .collect(Collectors.toSet()));
 
     // Query the list of all Account from mysql
-    Set<Account> accountSetFromDB = new HashSet<>(accountDao.getNewAccounts(0));
+    Set<Account> accountSetFromDB = new HashSet<>(mySqlAccountStore.getNewAccounts(0));
 
     // Query the list of containers for each Account and add them to the Account
     accountSetFromDB.forEach(account -> {
       try {
-        containerDao.getContainers(account.getId())
-            .forEach(account::updateContainerMap);
+        account.updateContainers(mySqlAccountStore.getContainersByAccount(account.getId()));
       } catch (SQLException e) {
         logger.error("MySQL querying containers failed", e);
         return;
