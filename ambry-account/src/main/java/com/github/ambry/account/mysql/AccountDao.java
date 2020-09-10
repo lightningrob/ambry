@@ -83,6 +83,11 @@ public class AccountDao {
     getSinceStatement.setTimestamp(1, sinceTime);
     try (ResultSet rs = getSinceStatement.executeQuery()) {
       return convertResultSet(rs);
+    } catch (SQLException e) {
+      // TODO: record failure, parse exception to figure out what we did wrong (eg. id or name collision)
+      // For now, assume connection issue.
+      dataAccessor.reset();
+      throw e;
     }
   }
 

@@ -15,7 +15,6 @@ package com.github.ambry.account.mysql;
 
 import com.github.ambry.account.AccountSerdeUtils;
 import com.github.ambry.account.Container;
-import com.github.ambry.account.Account;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
