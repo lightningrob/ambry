@@ -3,10 +3,10 @@ package com.github.ambry.account;
 import com.codahale.metrics.MetricRegistry;
 import com.github.ambry.account.mysql.AccountDao;
 import com.github.ambry.account.mysql.ContainerDao;
-import com.github.ambry.account.mysql.MySqlConfig;
 import com.github.ambry.account.mysql.MySqlDataAccessor;
 import com.github.ambry.commons.CommonUtils;
 import com.github.ambry.config.HelixPropertyStoreConfig;
+import com.github.ambry.config.MySqlAccountServiceConfig;
 import com.github.ambry.config.VerifiableProperties;
 import com.github.ambry.tools.util.ToolUtils;
 import com.github.ambry.utils.SystemTime;
@@ -15,7 +15,6 @@ import java.io.IOException;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.Arrays;
-import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -171,8 +170,8 @@ public class MySqlAccountsDBTool {
 
   public MySqlAccountsDBTool(VerifiableProperties verifiableProperties, String zkServer) throws SQLException {
 
-    this.mySqlDataAccessor = new MySqlDataAccessor(new MySqlConfig(verifiableProperties));
-    this.mySqlAccountStore = new MySqlAccountStore(new MySqlConfig(verifiableProperties));
+    this.mySqlDataAccessor = new MySqlDataAccessor(new MySqlAccountServiceConfig(verifiableProperties));
+    this.mySqlAccountStore = new MySqlAccountStore(new MySqlAccountServiceConfig(verifiableProperties));
     //Create helix property store
     HelixPropertyStoreConfig helixPropertyStoreConfig = new HelixPropertyStoreConfig(verifiableProperties);
     this.helixPropertyStore = CommonUtils.createHelixPropertyStore(zkServer, helixPropertyStoreConfig, null);
@@ -241,18 +240,13 @@ public class MySqlAccountsDBTool {
         .map(accountString -> Account.fromJson(new JSONObject(accountString)))
         .collect(Collectors.toSet()));
 
-    // Query the list of all Account from mysql
-    Set<Account> accountSetFromDB = new HashSet<>(mySqlAccountStore.getNewAccounts(0));
-
-    // Query the list of containers for each Account and add them to the Account
-    accountSetFromDB.forEach(account -> {
-      try {
-        account.updateContainers(mySqlAccountStore.getContainersByAccount(account.getId()));
-      } catch (SQLException e) {
-        logger.error("MySQL querying containers failed", e);
-        return;
-      }
-    });
+    // Query the list of all Account from mysql along with their containers
+    Set<Account> accountSetFromDB = new HashSet<>();
+    for (Account account : mySqlAccountStore.getNewAccounts(0)) {
+      AccountBuilder accountBuilder =
+          new AccountBuilder(account).containers(mySqlAccountStore.getContainersByAccount(account.getId()));
+      accountSetFromDB.add(accountBuilder.build());
+    }
 
     //Accounts missing (or different) in DB = accounts in ZK - accounts in DB
     accountSetFromZK.removeAll(accountSetFromDB);

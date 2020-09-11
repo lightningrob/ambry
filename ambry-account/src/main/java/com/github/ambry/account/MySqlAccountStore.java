@@ -16,8 +16,8 @@ package com.github.ambry.account;
 
 import com.github.ambry.account.mysql.AccountDao;
 import com.github.ambry.account.mysql.ContainerDao;
-import com.github.ambry.account.mysql.MySqlConfig;
 import com.github.ambry.account.mysql.MySqlDataAccessor;
+import com.github.ambry.config.MySqlAccountServiceConfig;
 import java.sql.SQLException;
 import java.util.Collection;
 import java.util.List;
@@ -28,12 +28,11 @@ import java.util.List;
  */
 public class MySqlAccountStore {
 
-  private final MySqlDataAccessor mySqlDataAccessor;
   private final AccountDao accountDao;
   private final ContainerDao containerDao;
 
-  public MySqlAccountStore(MySqlConfig config) throws SQLException {
-    mySqlDataAccessor = new MySqlDataAccessor(config);
+  public MySqlAccountStore(MySqlAccountServiceConfig config) throws SQLException {
+    MySqlDataAccessor mySqlDataAccessor = new MySqlDataAccessor(config);
     accountDao = new AccountDao(mySqlDataAccessor);
     containerDao = new ContainerDao(mySqlDataAccessor);
   }

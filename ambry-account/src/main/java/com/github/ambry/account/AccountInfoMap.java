@@ -199,17 +199,18 @@ class AccountInfoMap {
    * @param accounts collection of {@link Account}s to be added.
    */
   void updateAccounts(Collection<Account> accounts) {
-    for (Account account : accounts) {
-      Account accountToUpdate = idToAccountMap.get(account.getId());
-      if (accountToUpdate == null) {
-        accountToUpdate = account;
+    for (Account updatedAccount : accounts) {
+      Account account = idToAccountMap.get(updatedAccount.getId());
+      if (account == null) {
+        account = updatedAccount;
       } else {
-        accountToUpdate.setStatus(account.getStatus());
-        accountToUpdate.setSnapshotVersion(account.getSnapshotVersion());
-        accountToUpdate.updateContainers(account.getAllContainers());
+        AccountBuilder accountBuilder = new AccountBuilder(account).status(updatedAccount.getStatus())
+            .snapshotVersion(updatedAccount.getSnapshotVersion());
+        updatedAccount.getAllContainers().forEach(accountBuilder::addOrUpdateContainer);
+        account = accountBuilder.build();
       }
-      idToAccountMap.put(account.getId(), accountToUpdate);
-      nameToAccountMap.put(account.getName(), accountToUpdate);
+      idToAccountMap.put(account.getId(), account);
+      nameToAccountMap.put(account.getName(), account);
     }
   }
 
@@ -234,7 +235,10 @@ class AccountInfoMap {
     if (parentAccount == null) {
       throw new IllegalArgumentException("Account with ID " + accountId + "doesn't exist");
     }
-    idToAccountMap.get(accountId).updateContainers(Collections.singletonList(container));
+    AccountBuilder accountBuilder = new AccountBuilder(parentAccount).addOrUpdateContainer(container);
+    parentAccount = accountBuilder.build();
+    idToAccountMap.put(parentAccount.getId(), parentAccount);
+    nameToAccountMap.put(parentAccount.getName(), parentAccount);
   }
 
   /**

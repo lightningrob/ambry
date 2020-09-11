@@ -74,7 +74,7 @@ public class AccountDao {
   /**
    * Gets all accounts that have been created or modified since the specified time.
    * @param updatedSince the last modified time used to filter.
-   * @return a list of {@link Account}.
+   * @return a list of {@link Account}s.
    * @throws SQLException
    */
   public List<Account> getNewAccounts(long updatedSince) throws SQLException {
@@ -91,6 +91,11 @@ public class AccountDao {
     }
   }
 
+  /**
+   * Updates an existing account in the database.
+   * @param account the account to update.
+   * @throws SQLException
+   */
   public void updateAccount(Account account) throws SQLException {
     try {
       PreparedStatement updateStatement = dataAccessor.getPreparedStatement(updateSql);
@@ -106,11 +111,17 @@ public class AccountDao {
     }
   }
 
-  public List<Account> convertResultSet(ResultSet rs) throws SQLException {
+  /**
+   * Convert a query result set to a list of accounts.
+   * @param resultSet the result set.
+   * @return a list of {@link Account}s.
+   * @throws SQLException
+   */
+  private List<Account> convertResultSet(ResultSet resultSet) throws SQLException {
     List<Account> accounts = new ArrayList<>();
-    while (rs.next()) {
-      String accountJson = rs.getString(ACCOUNT_INFO);
-      Timestamp lastModifiedTime = rs.getTimestamp(LAST_MODIFIED_TIME);
+    while (resultSet.next()) {
+      String accountJson = resultSet.getString(ACCOUNT_INFO);
+      Timestamp lastModifiedTime = resultSet.getTimestamp(LAST_MODIFIED_TIME);
       Account account = AccountSerdeUtils.accountFromJson(accountJson);
       //account.setLastModifiedTime(lastModifiedTime);
       accounts.add(account);

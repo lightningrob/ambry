@@ -107,7 +107,7 @@ public class Account {
   private final short id;
   private final String name;
   private AccountStatus status;
-  private int snapshotVersion;
+  private final int snapshotVersion;
   // internal data structure
   private final Map<Short, Container> containerIdToContainerMap = new HashMap<>();
   private final Map<String, Container> containerNameToContainerMap = new HashMap<>();
@@ -229,14 +229,6 @@ public class Account {
    */
   public int getSnapshotVersion() {
     return snapshotVersion;
-  }
-
-  public void setStatus(AccountStatus status) {
-    this.status = status;
-  }
-
-  public void setSnapshotVersion(int snapshotVersion) {
-    this.snapshotVersion = snapshotVersion;
   }
 
   /**
@@ -368,9 +360,5 @@ public class Account {
               .toString();
       throw new IllegalStateException(errorMessage);
     }
-  }
-
-  void updateContainers(Collection<Container> containers) {
-    containers.forEach(this::updateContainerMap);
   }
 }

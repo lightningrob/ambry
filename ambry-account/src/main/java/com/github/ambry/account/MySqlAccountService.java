@@ -14,13 +14,16 @@
 
 package com.github.ambry.account;
 
-import com.github.ambry.account.mysql.MySqlConfig;
+import com.github.ambry.config.MySqlAccountServiceConfig;
+import com.github.ambry.server.StatsSnapshot;
 import java.io.IOException;
 import java.sql.SQLException;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.function.Consumer;
@@ -28,6 +31,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import static com.github.ambry.account.AccountUtils.*;
+import static com.github.ambry.utils.Utils.*;
 
 
 /**
@@ -37,15 +41,18 @@ public class MySqlAccountService implements AccountService {
 
   private MySqlAccountStore mySqlAccountStore = null;
   private final AccountServiceMetrics accountServiceMetrics;
-  private final MySqlConfig mySqlConfig;
+  private final MySqlAccountServiceConfig config;
   // in-memory cache for storing account and container metadata
   private final AccountInfoMap accountInfoMap;
   private static final Logger logger = LoggerFactory.getLogger(MySqlAccountService.class);
   private final ReadWriteLock rwLock = new ReentrantReadWriteLock();
+  private final ScheduledExecutorService scheduler;
 
-  public MySqlAccountService(AccountServiceMetrics accountServiceMetrics, MySqlConfig mySqlConfig) {
+  public MySqlAccountService(AccountServiceMetrics accountServiceMetrics, MySqlAccountServiceConfig config,
+      ScheduledExecutorService scheduler) {
     this.accountServiceMetrics = accountServiceMetrics;
-    this.mySqlConfig = mySqlConfig;
+    this.config = config;
+    this.scheduler = scheduler;
     accountInfoMap = new AccountInfoMap(accountServiceMetrics);
     try {
       createMySqlAccountStore();
@@ -57,9 +64,7 @@ public class MySqlAccountService implements AccountService {
 
     // TODO: create backup manager to manage local back up copies of Account and container metadata and lastModifiedTime
 
-    initializeCache();
-
-    // TODO: Start background thread for periodically querying MYSql DB for added/modified accounts and containers. Also, retry creation of MySqlAccountStore if it failed above.
+    initialFetchAndSchedule();
 
     // TODO: Subscribe to notifications from ZK
   }
@@ -71,8 +76,9 @@ public class MySqlAccountService implements AccountService {
   private void createMySqlAccountStore() throws SQLException {
     if (mySqlAccountStore == null) {
       try {
-        mySqlAccountStore = new MySqlAccountStore(this.mySqlConfig);
+        mySqlAccountStore = new MySqlAccountStore(config);
       } catch (SQLException e) {
+        // TODO: record failure, parse exception to figure out what we did wrong. If it is a non-transient error like credential issue, we should fail start up
         logger.error("MySQL account store creation failed", e);
         throw e;
       }
@@ -80,22 +86,33 @@ public class MySqlAccountService implements AccountService {
   }
 
   /**
-   * Call to initialize in-memory cache by fetching all the {@link Account}s and {@link Container}s metadata records.
+   * Initialize in-memory cache by fetching all the {@link Account}s and {@link Container}s metadata records.
    * It consists of 2 steps:
    * 1. Check local disk for back up copy and load metadata and last modified time of Accounts/Containers into cache.
    * 2. Fetch added/modified accounts and containers from mysql database since the last modified time (found in step 1)
    *    and load into cache.
    */
-  void initializeCache() {
+  private void initialFetchAndSchedule() {
+
     // TODO: Check local disk for back up copy and load metadata and last modified time into cache.
+
+    // Fetch added/modified accounts and containers from mysql db since LMT and update cache.
     fetchAndUpdateCache();
+
+    //Also, schedule to execute the logic periodically.
+    if (scheduler != null) {
+      scheduler.scheduleAtFixedRate(this::fetchAndUpdateCache, config.updaterPollingIntervalMs,
+          config.updaterPollingIntervalMs, TimeUnit.MILLISECONDS);
+      logger.info("Background account updater will fetch accounts from mysql db at intervals of {} ms",
+          config.updaterPollingIntervalMs);
+    }
   }
 
   /**
    * Fetches all the accounts and containers that have been created or modified since the last sync time and loads into
    * cache.
    */
-  void fetchAndUpdateCache() {
+  private void fetchAndUpdateCache() {
     try {
       // Retry connection to mysql if we couldn't set up previously
       createMySqlAccountStore();
@@ -108,19 +125,12 @@ public class MySqlAccountService implements AccountService {
     long lastModifiedTime = accountInfoMap.getLastModifiedTime();
 
     try {
-      // Fetch all added/modified accounts from MySql database since LMT
+      // Fetch all added/modified accounts and containers from MySql database since LMT
       List<Account> accounts = mySqlAccountStore.getNewAccounts(lastModifiedTime);
-      rwLock.writeLock().lock();
-      try {
-        accountInfoMap.updateAccounts(accounts);
-      } finally {
-        rwLock.writeLock().unlock();
-      }
-
-      // Fetch all added/modified containers from MySql database since LMT
       List<Container> containers = mySqlAccountStore.getNewContainers(lastModifiedTime);
       rwLock.writeLock().lock();
       try {
+        accountInfoMap.updateAccounts(accounts);
         accountInfoMap.updateContainers(containers);
       } finally {
         rwLock.writeLock().unlock();
@@ -166,10 +176,13 @@ public class MySqlAccountService implements AccountService {
       return false;
     }
 
-    // TODO: Similar to HelixAccountServiceConfig.updateDisabled, we might need a config to disable account updates when needed
+    if (config.updateDisabled) {
+      logger.info("Updates has been disabled");
+      return false;
+    }
 
     if (hasDuplicateAccountIdOrName(accounts)) {
-      logger.debug("Duplicate account id or name exist in the accounts to update");
+      logger.error("Duplicate account id or name exist in the accounts to update");
       //accountServiceMetrics.updateAccountErrorCount.inc();
       return false;
     }
@@ -178,11 +191,11 @@ public class MySqlAccountService implements AccountService {
     // update operation for all the accounts if any conflict exists. For existing accounts, there is a chance that the account to update
     // conflicts with the accounts in the local cache, but does not conflict with those in the MySql database. This
     // will happen if some accounts are updated but the local cache is not yet refreshed.
-    // TODO: Once we have APIs (and versioning) for updates at container granularity, we will need to check conflicts at container level.
+    // TODO: Once we have APIs (and versioning) for updating containers, we will need to check conflicts for containers as well.
     rwLock.readLock().lock();
     try {
       if (accountInfoMap.hasConflictingAccount(accounts)) {
-        logger.debug("Accounts={} conflict with the accounts in local cache. Cancel the update operation.", accounts);
+        logger.error("Accounts={} conflict with the accounts in local cache. Cancel the update operation.", accounts);
         //accountServiceMetrics.updateAccountErrorCount.inc();
         return false;
       }
@@ -236,8 +249,16 @@ public class MySqlAccountService implements AccountService {
   }
 
   @Override
-  public void close() throws IOException {
+  public void selectInactiveContainersAndMarkInZK(StatsSnapshot statsSnapshot) {
+    // TODO: Work with Sophie to implement this method in MySqlAccountService
+    throw new UnsupportedOperationException("This method is not supported");
+  }
 
+  @Override
+  public void close() throws IOException {
+    if (scheduler != null) {
+      shutDownExecutorService(scheduler, config.updaterShutDownTimeoutMs, TimeUnit.MILLISECONDS);
+    }
   }
 
   /**
@@ -275,7 +296,7 @@ public class MySqlAccountService implements AccountService {
    * @throws SQLException
    */
   private void updateContainersWithMySqlStore(short accountId, Collection<Container> containers) throws SQLException {
-    //check if account ID should exist first in in-memory cache
+    //check for account ID in in-memory cache
     Account accountInCache = accountInfoMap.getAccountById(accountId);
     if (accountInCache == null) {
       throw new IllegalArgumentException("Account with ID " + accountId + "doesn't exist");
