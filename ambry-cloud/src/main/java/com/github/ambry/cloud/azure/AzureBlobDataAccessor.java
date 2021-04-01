@@ -63,6 +63,7 @@ import org.slf4j.LoggerFactory;
 public class AzureBlobDataAccessor {
 
   private static final Logger logger = LoggerFactory.getLogger(AzureBlobDataAccessor.class);
+  // TODO: for async upload download, switch this to BlobServiceAsyncClient
   private final BlobServiceClient storageClient;
   private final BlobBatchClient blobBatchClient;
   private final Configuration storageConfiguration;
@@ -106,6 +107,7 @@ public class AzureBlobDataAccessor {
         .httpClient(client)
         .retryOptions(noRetries)
         .configuration(storageConfiguration)
+        // TODO: buildAsyncClient()
         .buildClient();
     blobBatchClient = new BlobBatchClientBuilder(storageClient).buildClient();
   }
